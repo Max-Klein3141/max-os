@@ -4,6 +4,7 @@ import {
   CalendarCheck,
   Database,
   Flame,
+  GraduationCap,
   Home,
   NotebookPen,
   Target,
@@ -16,6 +17,7 @@ export type ViewKey =
   | "journal"
   | "planner"
   | "knowledge"
+  | "learning"
   | "analytics"
   | "weekly"
   | "settings";
@@ -33,6 +35,7 @@ export const NAV: NavItem[] = [
   { key: "journal", label: "Journal", icon: NotebookPen },
   { key: "planner", label: "Planner & Goals", icon: Target },
   { key: "knowledge", label: "Knowledge Base", icon: Brain },
+  { key: "learning", label: "Learning", icon: GraduationCap },
   { key: "analytics", label: "Analytics", icon: BarChart3 },
   { key: "weekly", label: "Weekly Review", icon: CalendarCheck },
 ];

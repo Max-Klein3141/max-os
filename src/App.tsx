@@ -8,6 +8,7 @@ const Habits = lazy(() => import("./pages/Habits"));
 const Journal = lazy(() => import("./pages/Journal"));
 const Planner = lazy(() => import("./pages/Planner"));
 const Knowledge = lazy(() => import("./pages/Knowledge"));
+const Learning = lazy(() => import("./pages/Learning"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 const WeeklyReview = lazy(() => import("./pages/WeeklyReview"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -18,6 +19,7 @@ const VALID_VIEWS: ViewKey[] = [
   "journal",
   "planner",
   "knowledge",
+  "learning",
   "analytics",
   "weekly",
   "settings",
@@ -37,6 +39,8 @@ function renderView(view: ViewKey, navigate: (key: ViewKey) => void) {
       return <Planner />;
     case "knowledge":
       return <Knowledge />;
+    case "learning":
+      return <Learning onNavigate={navigate} />;
     case "analytics":
       return <Analytics />;
     case "weekly":

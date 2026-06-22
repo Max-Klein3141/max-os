@@ -7,6 +7,7 @@ export function emptyDatabase(): Database {
   return {
     habits: [],
     habitLogs: {},
+    habitNotes: {},
     journal: {},
     goals: [],
     todos: [],
@@ -15,6 +16,7 @@ export function emptyDatabase(): Database {
     weeklyReviews: {},
     quotes: [],
     spacedRep: [],
+    learningItems: [],
   };
 }
 
@@ -23,6 +25,7 @@ function loadDatabase(): Database {
   return {
     habits: load(STORAGE_KEYS.habits, empty.habits),
     habitLogs: load(STORAGE_KEYS.habitLogs, empty.habitLogs),
+    habitNotes: load(STORAGE_KEYS.habitNotes, empty.habitNotes),
     journal: load(STORAGE_KEYS.journal, empty.journal),
     goals: load(STORAGE_KEYS.goals, empty.goals),
     todos: load(STORAGE_KEYS.todos, empty.todos),
@@ -31,6 +34,7 @@ function loadDatabase(): Database {
     weeklyReviews: load(STORAGE_KEYS.weeklyReviews, empty.weeklyReviews),
     quotes: load(STORAGE_KEYS.quotes, empty.quotes),
     spacedRep: load(STORAGE_KEYS.spacedRep, empty.spacedRep),
+    learningItems: load(STORAGE_KEYS.learningItems, empty.learningItems),
   };
 }
 
@@ -89,6 +93,7 @@ export function useSlice<K extends keyof Database>(key: K): Database[K] {
 export function useDatabase(): Database {
   useSlice("habits");
   useSlice("habitLogs");
+  useSlice("habitNotes");
   useSlice("journal");
   useSlice("goals");
   useSlice("todos");
@@ -97,6 +102,7 @@ export function useDatabase(): Database {
   useSlice("weeklyReviews");
   useSlice("quotes");
   useSlice("spacedRep");
+  useSlice("learningItems");
   return db;
 }
 

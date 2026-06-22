@@ -1,10 +1,24 @@
-import { AlertTriangle, Download, Plus, Quote, Trash2, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  Download,
+  FileText,
+  Plus,
+  Quote,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { useRef, useState } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
-import { addQuote, DEFAULT_QUOTES, removeQuote } from "../lib/challenges";
-import { STORAGE_KEYS } from "../lib/storage";
+import {
+  addQuote,
+  DEFAULT_QUOTES,
+  importQuotes,
+  parseQuotes,
+  removeQuote,
+} from "../lib/challenges";
+import { EXTRA_BACKUP_KEYS, STORAGE_KEYS } from "../lib/storage";
 import {
   emptyDatabase,
   getDatabase,
@@ -16,12 +30,17 @@ import type { Database } from "../types";
 const BACKUP_APP = "MAX OS";
 
 function exportData() {
-  const payload = {
+  const payload: Record<string, unknown> = {
     app: BACKUP_APP,
     version: 1,
     exportedAt: new Date().toISOString(),
     data: getDatabase(),
   };
+  // Standalone keys (identity, banner dismissals) — include each only when set.
+  for (const key of EXTRA_BACKUP_KEYS) {
+    const value = localStorage.getItem(key);
+    if (value !== null) payload[key] = value;
+  }
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json",
   });
@@ -44,9 +63,34 @@ function estimateBytes(): number {
 export default function Settings() {
   const quotes = useSlice("quotes");
   const fileRef = useRef<HTMLInputElement>(null);
+  const quoteFileRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [newQuote, setNewQuote] = useState("");
   const [newAuthor, setNewAuthor] = useState("");
+  const [importText, setImportText] = useState("");
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+
+  function runImport(raw: string) {
+    const found = parseQuotes(raw).length;
+    if (found === 0) {
+      setImportMsg("No quotes found — put one quote per line.");
+      return;
+    }
+    const added = importQuotes(raw);
+    const dupes = found - added;
+    setImportMsg(
+      `Imported ${added} new quote${added === 1 ? "" : "s"}` +
+        (dupes > 0 ? ` · ${dupes} already in your pool` : "") +
+        ". They'll rotate through your daily challenge.",
+    );
+  }
+
+  function onImportFile(file: File | undefined) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => runImport(String(reader.result ?? ""));
+    reader.readAsText(file);
+  }
 
   function onImport(file: File | undefined) {
     if (!file) return;
@@ -66,6 +110,12 @@ export default function Settings() {
           return;
         }
         replaceDatabase(data);
+        // Restore standalone keys when present; skip silently if absent so an
+        // older backup never clobbers existing values with null.
+        for (const key of EXTRA_BACKUP_KEYS) {
+          const value = (parsed as Record<string, unknown>)?.[key];
+          if (typeof value === "string") localStorage.setItem(key, value);
+        }
         setStatus("Backup imported successfully.");
       } catch {
         setStatus("That file couldn't be read as a MAX OS backup.");
@@ -189,6 +239,59 @@ export default function Settings() {
               ))}
             </ul>
           )}
+        </Card>
+
+        <Card className="p-5 lg:col-span-2">
+          <h2 className="flex items-center gap-2 font-semibold text-white">
+            <FileText size={16} className="text-indigo-400" /> Import quotes from a
+            document
+          </h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Paste your quotes (one per line) or upload a .txt / .md file. Add{" "}
+            <span className="text-zinc-400">“ — Author”</span> after a quote to set
+            its author. Duplicates are skipped, so you can re-import an updated file
+            anytime.
+          </p>
+          <div className="mt-4 space-y-2">
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              rows={5}
+              placeholder={
+                "The obstacle is the way. — Marcus Aurelius\nDiscipline equals freedom. — Jocko Willink\n…"
+              }
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-400/50 focus:outline-none"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="primary"
+                disabled={!importText.trim()}
+                onClick={() => {
+                  runImport(importText);
+                  setImportText("");
+                }}
+              >
+                <Plus size={15} /> Import
+                {importText.trim() ? ` ${parseQuotes(importText).length}` : ""} quotes
+              </Button>
+              <Button onClick={() => quoteFileRef.current?.click()}>
+                <Upload size={15} /> Upload a file
+              </Button>
+              <input
+                ref={quoteFileRef}
+                type="file"
+                accept=".txt,.md,.markdown,.csv,text/plain"
+                className="hidden"
+                onChange={(e) => {
+                  onImportFile(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+              />
+              {importMsg && (
+                <span className="text-xs text-indigo-300">{importMsg}</span>
+              )}
+            </div>
+          </div>
         </Card>
 
         <Card className="border-red-500/20 p-5 lg:col-span-2">

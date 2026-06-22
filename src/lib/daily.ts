@@ -1,6 +1,5 @@
 import type { DailyLog } from "../types";
 import { getDatabase, setSlice } from "./store";
-import { scheduleForLearning } from "./spacedRep";
 
 /** Read a daily log, or an empty one for that date. */
 export function getDailyLog(key: string): DailyLog {
@@ -16,12 +15,6 @@ export function updateDailyLog(key: string, patch: Partial<DailyLog>): void {
     date: key,
   };
   setSlice("dailyLogs", { ...logs, [key]: next });
-}
-
-/** Save a learning summary and (re)schedule its spaced-repetition reviews. */
-export function saveLearning(key: string, learning: string): void {
-  updateDailyLog(key, { learning });
-  scheduleForLearning(key, learning);
 }
 
 /** Most recent non-empty wins, newest first. */

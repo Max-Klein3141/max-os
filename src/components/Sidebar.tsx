@@ -1,5 +1,7 @@
 import { X } from "lucide-react";
 import { cn } from "../lib/cn";
+import { useSlice } from "../lib/store";
+import { weeklyReviewStatus } from "../lib/weekly";
 import { NAV, SETTINGS_ITEM } from "../views";
 import type { NavItem, ViewKey } from "../views";
 
@@ -13,10 +15,12 @@ interface SidebarProps {
 function NavButton({
   item,
   active,
+  badge,
   onClick,
 }: {
   item: NavItem;
   active: boolean;
+  badge?: boolean;
   onClick: () => void;
 }) {
   const Icon = item.icon;
@@ -35,7 +39,14 @@ function NavButton({
         size={17}
         className={active ? "text-indigo-400" : "text-zinc-500 group-hover:text-zinc-300"}
       />
-      {item.label}
+      <span className="flex-1 text-left">{item.label}</span>
+      {badge && (
+        <span
+          className="h-2 w-2 shrink-0 rounded-full bg-amber-400"
+          title="Weekly review not done yet"
+          aria-label="Weekly review not done yet"
+        />
+      )}
     </button>
   );
 }
@@ -47,6 +58,9 @@ function SidebarBody({
   active: ViewKey;
   onNavigate: (key: ViewKey) => void;
 }) {
+  const reviews = useSlice("weeklyReviews");
+  const reviewOverdue = weeklyReviewStatus(reviews).state !== "ok";
+
   return (
     <div className="flex h-full flex-col gap-1 p-3">
       <div className="px-3 py-4">
@@ -66,6 +80,7 @@ function SidebarBody({
             key={item.key}
             item={item}
             active={active === item.key}
+            badge={item.key === "weekly" && reviewOverdue}
             onClick={() => onNavigate(item.key)}
           />
         ))}

@@ -1,5 +1,11 @@
 import { addDays, startOfDay, subDays } from "date-fns";
-import type { Habit, HabitCategory, HabitFrequency, HabitLogs } from "../types";
+import type {
+  Habit,
+  HabitCategory,
+  HabitFrequency,
+  HabitLogs,
+  HabitNotes,
+} from "../types";
 import { setSlice, uid, updateSlice, getDatabase } from "./store";
 import { dateKey } from "./dates";
 
@@ -101,6 +107,39 @@ export function longestStreak(habit: Habit, logs: HabitLogs): number {
   return longest;
 }
 
+/**
+ * Length of the most recent completed run that has since been broken — i.e. the
+ * streak you *used* to have before the current gap. Returns 0 if there's no
+ * broken run (e.g. the streak is still alive, or you never had one). Used to
+ * prompt a restart after a lapse.
+ */
+export function previousStreak(
+  habit: Habit,
+  logs: HabitLogs,
+  asOf: Date = new Date(),
+): number {
+  // Start from yesterday — today not being done yet isn't a "break".
+  let cursor = subDays(startOfDay(asOf), 1);
+  let guard = 0;
+  // Walk back over the gap (missed scheduled days) to the end of the last run.
+  for (; guard < 800; guard++) {
+    if (isDue(habit, cursor)) {
+      if (isCompleted(logs, habit.id, dateKey(cursor))) break;
+    }
+    cursor = subDays(cursor, 1);
+  }
+  // Count the consecutive completed scheduled days that make up that run.
+  let streak = 0;
+  for (; guard < 1600; guard++) {
+    if (isDue(habit, cursor)) {
+      if (isCompleted(logs, habit.id, dateKey(cursor))) streak++;
+      else break;
+    }
+    cursor = subDays(cursor, 1);
+  }
+  return streak;
+}
+
 export interface CompletionStats {
   done: number;
   due: number;
@@ -143,6 +182,66 @@ export function aggregateConsistency(
   return { done, due, rate: due === 0 ? 0 : Math.round((done / due) * 100) };
 }
 
+/** How many days back the momentum scale looks — two weeks, matching the grid. */
+export const MOMENTUM_WINDOW_DAYS = 14;
+
+/**
+ * Recency half-life (days) for the momentum scale: a scheduled day this many
+ * days ago counts half as much toward momentum as today.
+ */
+export const MOMENTUM_HALF_LIFE = 14;
+
+export interface WeightedConsistency extends CompletionStats {
+  /** 0–100 — completion percentage with recent days weighted more heavily. */
+  weighted: number;
+}
+
+/**
+ * Momentum scale: the share of scheduled habit-days completed over the last
+ * `windowDays` days, weighting recent days more than older ones. Each scheduled
+ * day at age `n` (today = 0) is weighted `2^(-n / halfLife)`. Days before the
+ * habit was created don't count (they were never "missed"), so the score
+ * reaches 100% only when *all* boxes that actually existed in the window are
+ * checked. `rate` keeps the plain (unweighted) percentage for context.
+ */
+export function weightedConsistency(
+  habits: Habit[],
+  logs: HabitLogs,
+  asOf: Date = new Date(),
+  windowDays: number = MOMENTUM_WINDOW_DAYS,
+  halfLife: number = MOMENTUM_HALF_LIFE,
+): WeightedConsistency {
+  const today = startOfDay(asOf);
+  const decay = Math.LN2 / halfLife;
+  let weightedDone = 0;
+  let weightedDue = 0;
+  let done = 0;
+  let due = 0;
+  for (const habit of habits) {
+    const created = startOfDay(new Date(habit.createdAt));
+    let cursor = today;
+    for (let age = 0; age < windowDays; age++) {
+      // Days before the habit existed aren't "missed" — skip them entirely.
+      if (cursor >= created && isDue(habit, cursor)) {
+        const w = Math.exp(-decay * age);
+        weightedDue += w;
+        due++;
+        if (isCompleted(logs, habit.id, dateKey(cursor))) {
+          weightedDone += w;
+          done++;
+        }
+      }
+      cursor = subDays(cursor, 1);
+    }
+  }
+  return {
+    done,
+    due,
+    rate: due === 0 ? 0 : Math.round((done / due) * 100),
+    weighted: weightedDue === 0 ? 0 : Math.round((weightedDone / weightedDue) * 100),
+  };
+}
+
 // ── Mutations ──────────────────────────────────────────────────────────────
 
 export interface HabitInput {
@@ -152,6 +251,9 @@ export interface HabitInput {
   customDays?: number[];
   color: string;
   description?: string;
+  identityStatement?: string;
+  goalId?: string;
+  minimumViable?: string;
 }
 
 export function addHabit(input: HabitInput): Habit {
@@ -197,4 +299,30 @@ export function toggleHabitLog(habitId: string, key: string): void {
     else next[k] = true;
     return next;
   });
+}
+
+/** Read a per-habit, per-day note (e.g. a streak-recovery commitment). */
+export function habitNote(
+  notes: HabitNotes,
+  habitId: string,
+  key: string,
+): string | undefined {
+  return notes[logKey(habitId, key)];
+}
+
+/** Whether a note (even empty) has been recorded for this habit-day. */
+export function hasHabitNote(
+  notes: HabitNotes,
+  habitId: string,
+  key: string,
+): boolean {
+  return logKey(habitId, key) in notes;
+}
+
+/** Save a per-habit, per-day note. Storing it also dismisses the recovery prompt. */
+export function setHabitNote(habitId: string, key: string, text: string): void {
+  updateSlice("habitNotes", (notes) => ({
+    ...notes,
+    [logKey(habitId, key)]: text.trim(),
+  }));
 }

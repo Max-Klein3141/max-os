@@ -82,3 +82,71 @@ export function addQuote(text: string, author?: string): void {
 export function removeQuote(id: string): void {
   updateSlice("quotes", (quotes) => quotes.filter((q) => q.id !== id));
 }
+
+export interface ParsedQuote {
+  text: string;
+  author?: string;
+}
+
+/** Strip a single pair of wrapping quote marks (straight or curly). */
+function stripWrappingQuotes(s: string): string {
+  return s
+    .replace(/^["“”'']\s*/, "")
+    .replace(/\s*["“”'']$/, "")
+    .trim();
+}
+
+/** Split a line into quote text + optional author at an attribution dash. */
+function splitAuthor(line: string): ParsedQuote {
+  // Em dash / en dash almost always marks attribution.
+  const dash = line.match(/^(.*\S)\s*[—–]\s*(\S.*)$/);
+  if (dash) return { text: dash[1].trim(), author: dash[2].trim() };
+  // A spaced hyphen counts only when the right side looks like a short name.
+  const hyphen = line.match(/^(.*\S)\s+-\s+([A-Z][^-]{1,48})$/);
+  if (hyphen && hyphen[2].trim().split(/\s+/).length <= 5) {
+    return { text: hyphen[1].trim(), author: hyphen[2].trim() };
+  }
+  return { text: line };
+}
+
+/**
+ * Parse pasted/uploaded text into quotes — one per non-blank line. An author
+ * may follow an em dash, en dash, or " - " (e.g. `Stay hungry. — Steve Jobs`).
+ */
+export function parseQuotes(raw: string): ParsedQuote[] {
+  const out: ParsedQuote[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const { text, author } = splitAuthor(trimmed);
+    const clean = stripWrappingQuotes(text);
+    if (clean) out.push({ text: clean, author: author || undefined });
+  }
+  return out;
+}
+
+/**
+ * Import quotes from a document, skipping any whose text already exists (so it's
+ * safe to re-import an updated file). Returns how many new quotes were added.
+ */
+export function importQuotes(raw: string): number {
+  const parsed = parseQuotes(raw);
+  if (!parsed.length) return 0;
+  let added = 0;
+  updateSlice("quotes", (quotes) => {
+    const seen = new Set<string>([
+      ...DEFAULT_QUOTES.map((q) => q.text.toLowerCase()),
+      ...quotes.map((q) => q.text.toLowerCase()),
+    ]);
+    const next = [...quotes];
+    for (const p of parsed) {
+      const key = p.text.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      next.push({ id: uid(), text: p.text, author: p.author });
+      added++;
+    }
+    return next;
+  });
+  return added;
+}

@@ -1,19 +1,28 @@
 import {
   Activity,
+  ArrowRight,
   BookOpen,
+  CalendarCheck,
   Check,
+  Compass,
   Eye,
   Flame,
   Lightbulb,
   Moon,
+  NotebookPen,
+  Pencil,
   Plus,
   Quote as QuoteIcon,
-  RotateCcw,
   Sparkles,
+  Target,
   Trophy,
   Zap,
 } from "lucide-react";
+import { startOfISOWeek } from "date-fns";
 import { useEffect, useState } from "react";
+import type { ComponentType } from "react";
+import { LearningCapture, RecallReview } from "../components/learning";
+import { ReminderBanner } from "../components/ReminderBanner";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -21,13 +30,31 @@ import { Gauge } from "../components/ui/Gauge";
 import { LevelSlider } from "../components/ui/LevelSlider";
 import { getDailyChallenge } from "../lib/challenges";
 import { cn } from "../lib/cn";
-import { getDailyLog, recentWins, saveLearning, updateDailyLog } from "../lib/daily";
-import { dateKey, greeting, humanDate, longDate, subDays, todayKey } from "../lib/dates";
-import { currentStreak, isCompleted, isDue, toggleHabitLog } from "../lib/habits";
+import { getDailyLog, recentWins, updateDailyLog } from "../lib/daily";
+import {
+  dateKey,
+  greeting,
+  humanDate,
+  isoWeekKey,
+  longDate,
+  subDays,
+  todayKey,
+} from "../lib/dates";
+import { dismissBanner, getDismissals } from "../lib/dismissals";
+import {
+  currentStreak,
+  hasHabitNote,
+  isCompleted,
+  isDue,
+  previousStreak,
+  setHabitNote,
+  toggleHabitLog,
+} from "../lib/habits";
 import { computeMomentum } from "../lib/momentum";
-import { dueCards, markReviewed, rescheduleCard } from "../lib/spacedRep";
+import { dueCards } from "../lib/spacedRep";
 import { useDatabase } from "../lib/store";
-import type { DailyLog, Habit, HabitLogs, SpacedRepCard } from "../types";
+import { weeklyReviewStatus } from "../lib/weekly";
+import type { DailyLog, Goal, Habit, HabitLogs, HabitNotes, Todo } from "../types";
 import type { ViewKey } from "../views";
 
 interface TodayProps {
@@ -45,9 +72,82 @@ export default function Today({ onNavigate }: TodayProps) {
   const momentum = computeMomentum(db, now);
   const activeHabits = db.habits.filter((h) => !h.archived);
   const dueHabits = activeHabits.filter((h) => isDue(h, now));
+  const reviewStatus = weeklyReviewStatus(db.weeklyReviews, now);
+
+  // ── Daily completion checks (drive the warning banners) ──────────────────
+  const todayEntry = db.journal[key];
+  const journaledToday = Boolean(
+    todayEntry &&
+      Object.values(todayEntry.sections ?? {}).some((v) => v.trim()),
+  );
+  const winLogged = Boolean(log.win && log.win.trim());
+  const learnedToday =
+    db.learningItems.some((i) => i.sourceDate === key) ||
+    Boolean(log.learning && log.learning.trim());
+  const vitalsRated =
+    log.energy !== undefined &&
+    log.sleep !== undefined &&
+    log.stress !== undefined;
+  const habitsRemaining = dueHabits.filter(
+    (h) => !isCompleted(db.habitLogs, h.id, key),
+  ).length;
+
+  const [dismissed, setDismissed] = useState<string[]>(() => getDismissals(key));
+  function dismiss(id: string) {
+    setDismissed(dismissBanner(key, id));
+  }
+
+  const warnings: DailyWarning[] = [];
+  if (!journaledToday)
+    warnings.push({
+      id: "journal",
+      icon: NotebookPen,
+      message: "You haven't written today's journal entry.",
+      label: "Write it",
+      onAction: () => onNavigate("journal"),
+    });
+  if (habitsRemaining > 0)
+    warnings.push({
+      id: "habits",
+      icon: Flame,
+      message: `You have ${habitsRemaining} habit${habitsRemaining > 1 ? "s" : ""} left to check off today.`,
+      label: "Show me",
+      onAction: () => scrollToWidget("today-habits"),
+    });
+  if (!vitalsRated)
+    warnings.push({
+      id: "vitals",
+      icon: Activity,
+      message: "You haven't rated your energy, sleep & stress today.",
+      label: "Rate now",
+      onAction: () => scrollToWidget("today-vitals"),
+    });
+  if (!winLogged)
+    warnings.push({
+      id: "win",
+      icon: Trophy,
+      message: "You haven't logged your Win of the Day.",
+      label: "Log it",
+      onAction: () => scrollToWidget("today-win"),
+    });
+  if (!learnedToday)
+    warnings.push({
+      id: "learning",
+      icon: Lightbulb,
+      message: "You haven't captured a learning today.",
+      label: "Capture",
+      onAction: () => scrollToWidget("today-learning"),
+    });
+  const visibleWarnings = warnings.filter((w) => !dismissed.includes(w.id));
+
+  // This week's focus = the "focus for next week" written in last week's review.
+  const prevWeek = isoWeekKey(subDays(startOfISOWeek(now), 1));
+  const weeklyFocus = db.weeklyReviews[prevWeek]?.focusNext?.trim() ?? "";
 
   return (
     <div className="space-y-6">
+      <IdentityHeadline />
+
       <header>
         <p className="text-sm text-zinc-500">{longDate(now)}</p>
         <h1 className="mt-1 text-3xl font-bold tracking-tight text-white">
@@ -55,27 +155,304 @@ export default function Today({ onNavigate }: TodayProps) {
         </h1>
       </header>
 
+      <WeeklyFocusCallout focus={weeklyFocus} onNavigate={onNavigate} />
+
+      {reviewStatus.state !== "ok" && (
+        <WeeklyReviewBanner status={reviewStatus} onNavigate={onNavigate} />
+      )}
+
+      {visibleWarnings.length > 0 && (
+        <div className="space-y-3">
+          {visibleWarnings.map((w) => (
+            <ReminderBanner
+              key={w.id}
+              icon={w.icon}
+              onDismiss={() => dismiss(w.id)}
+              action={
+                <Button size="sm" variant="secondary" onClick={w.onAction}>
+                  {w.label}
+                </Button>
+              }
+            >
+              {w.message}
+            </ReminderBanner>
+          ))}
+        </div>
+      )}
+
+      <MorningIntention dateKeyStr={key} value={log.morningIntention ?? ""} />
+
+      <div id="today-habits">
+        <HabitsToday
+          habits={dueHabits}
+          logKeyDate={key}
+          logs={db.habitLogs}
+          notes={db.habitNotes}
+          goals={db.goals}
+          onNavigate={onNavigate}
+        />
+      </div>
+
+      <GoalsToday todos={db.todos} goals={db.goals} todayKeyStr={key} />
+
       <MomentumPanel momentum={momentum} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="space-y-6">
-          <HabitsToday
-            habits={dueHabits}
-            logKeyDate={key}
-            logs={db.habitLogs}
-            onNavigate={onNavigate}
-          />
-          <DailyChallengeCard challenge={getDailyChallenge(db, now)} />
-          <SpacedRepReview cards={dueCards(key)} />
-        </div>
-
-        <div className="space-y-6">
+        <div id="today-vitals">
           <VitalsPanel log={log} yLog={yLog} dateKeyStr={key} />
+        </div>
+        <div id="today-win">
           <WinPanel dateKeyStr={key} initialWin={log.win ?? ""} logs={db.dailyLogs} />
-          <LearningPanel dateKeyStr={key} initialLearning={log.learning ?? ""} />
+        </div>
+        <DailyChallengeCard challenge={getDailyChallenge(db, now)} />
+        <div id="today-learning">
+          <LearningCapture dateKeyStr={key} routingHint />
         </div>
       </div>
+
+      <RecallReview cards={dueCards(key)} />
     </div>
+  );
+}
+
+interface DailyWarning {
+  id: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+  message: string;
+  label: string;
+  onAction: () => void;
+}
+
+function scrollToWidget(id: string) {
+  document
+    .getElementById(id)
+    ?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+const IDENTITY_KEY = "maxos_identity";
+
+function IdentityHeadline() {
+  const [value, setValue] = useState(
+    () => localStorage.getItem(IDENTITY_KEY) ?? "",
+  );
+  const [editing, setEditing] = useState(false);
+
+  function commit(next: string) {
+    const trimmed = next.trim();
+    setValue(trimmed);
+    localStorage.setItem(IDENTITY_KEY, trimmed);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        defaultValue={value}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit(e.currentTarget.value);
+          if (e.key === "Escape") setEditing(false);
+        }}
+        placeholder="I am the type of person who…"
+        className="w-full border-b border-indigo-400/40 bg-transparent pb-1 text-lg font-medium text-white placeholder:text-zinc-600 focus:outline-none"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      className="group block w-full text-left"
+      title="Click to edit"
+    >
+      {value ? (
+        <span className="text-lg font-medium text-zinc-200">
+          <span className="text-zinc-500">I am the type of person who </span>
+          {value}
+        </span>
+      ) : (
+        <span className="text-lg font-medium text-zinc-600 transition-colors group-hover:text-zinc-400">
+          Define who you are becoming →
+        </span>
+      )}
+    </button>
+  );
+}
+
+function WeeklyFocusCallout({
+  focus,
+  onNavigate,
+}: {
+  focus: string;
+  onNavigate: (key: ViewKey) => void;
+}) {
+  if (!focus) {
+    return (
+      <button
+        type="button"
+        onClick={() => onNavigate("weekly")}
+        className="block text-sm text-zinc-500 transition-colors hover:text-zinc-300"
+      >
+        Set your focus for this week →
+      </button>
+    );
+  }
+  return (
+    <Card className="border-indigo-400/30 bg-indigo-400/[0.06] p-5">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-400/15 text-indigo-300">
+          <Compass size={17} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wider text-indigo-300/80">
+            This week's focus
+          </p>
+          <p className="mt-1 text-lg font-medium leading-snug text-white">
+            {focus}
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function MorningIntention({
+  dateKeyStr,
+  value,
+}: {
+  dateKeyStr: string;
+  value: string;
+}) {
+  const [editing, setEditing] = useState(value.trim() === "");
+  const [text, setText] = useState(value);
+
+  function save() {
+    const trimmed = text.trim();
+    updateDailyLog(dateKeyStr, { morningIntention: trimmed || undefined });
+    if (trimmed) setEditing(false);
+  }
+
+  if (!editing && value.trim()) {
+    return (
+      <Card className="flex items-start gap-3 border-indigo-400/25 bg-indigo-400/[0.04] p-5">
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-400/15 text-indigo-300">
+          <Target size={17} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium uppercase tracking-wider text-indigo-300/70">
+            Today's one thing
+          </p>
+          <p className="mt-1 text-lg font-medium leading-snug text-white">{value}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setText(value);
+            setEditing(true);
+          }}
+          aria-label="Edit today's intention"
+          className="shrink-0 rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+        >
+          <Pencil size={15} />
+        </button>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-indigo-400/25 bg-indigo-400/[0.04] p-5">
+      <label className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
+        <Target size={15} className="text-indigo-300" />
+        What's the one thing that makes today a win?
+      </label>
+      <input
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            save();
+          }
+        }}
+        onBlur={save}
+        placeholder="Name your single most important target for today…"
+        className="mt-3 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-[15px] text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-400/50 focus:outline-none"
+      />
+    </Card>
+  );
+}
+
+function GoalsToday({
+  todos,
+  goals,
+  todayKeyStr,
+}: {
+  todos: Todo[];
+  goals: Goal[];
+  todayKeyStr: string;
+}) {
+  const linked = todos
+    .filter((t) => t.date === todayKeyStr && t.goalId)
+    .map((t) => ({ todo: t, goal: goals.find((g) => g.id === t.goalId) }))
+    .filter((x): x is { todo: Todo; goal: Goal } => Boolean(x.goal));
+
+  if (linked.length === 0) return null;
+
+  return (
+    <Card className="p-5">
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+        <Target size={15} className="text-indigo-400" /> Moving toward your goals today
+      </h2>
+      <ul className="space-y-2">
+        {linked.map(({ todo, goal }) => (
+          <li
+            key={todo.id}
+            className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800/60 px-3 py-2"
+          >
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-sm",
+                todo.done ? "text-zinc-500 line-through" : "text-zinc-200",
+              )}
+            >
+              {todo.text}
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-indigo-300/90">
+              <ArrowRight size={13} /> {goal.title || "Untitled goal"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function WeeklyReviewBanner({
+  status,
+  onNavigate,
+}: {
+  status: ReturnType<typeof weeklyReviewStatus>;
+  onNavigate: (key: ViewKey) => void;
+}) {
+  if (status.state === "ok") return null;
+  const message =
+    status.state === "dueToday"
+      ? `It's Sunday — your weekly review for ${status.week} isn't done yet.`
+      : `You haven't done your weekly review for ${status.week}.`;
+  return (
+    <ReminderBanner
+      icon={CalendarCheck}
+      action={
+        <Button size="sm" variant="secondary" onClick={() => onNavigate("weekly")}>
+          Do it now
+        </Button>
+      }
+    >
+      {message}
+    </ReminderBanner>
   );
 }
 
@@ -122,11 +499,15 @@ function HabitsToday({
   habits,
   logKeyDate,
   logs,
+  notes,
+  goals,
   onNavigate,
 }: {
   habits: Habit[];
   logKeyDate: string;
   logs: HabitLogs;
+  notes: HabitNotes;
+  goals: Goal[];
   onNavigate: (key: ViewKey) => void;
 }) {
   return (
@@ -150,13 +531,26 @@ function HabitsToday({
           {habits.map((habit) => {
             const done = isCompleted(logs, habit.id, logKeyDate);
             const streak = currentStreak(habit, logs);
+            const lapsed = previousStreak(habit, logs);
+            const showRecovery =
+              streak === 0 &&
+              lapsed >= 3 &&
+              !hasHabitNote(notes, habit.id, logKeyDate);
+            const linkedGoal = habit.goalId
+              ? goals.find((g) => g.id === habit.goalId)
+              : undefined;
             return (
               <li key={habit.id}>
                 <button
                   type="button"
                   onClick={() => toggleHabitLog(habit.id, logKeyDate)}
+                  title={
+                    habit.minimumViable
+                      ? `On a hard day, at least: ${habit.minimumViable}`
+                      : undefined
+                  }
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    "group flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
                     done
                       ? "border-zinc-700 bg-zinc-800/50"
                       : "border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/30",
@@ -171,26 +565,99 @@ function HabitsToday({
                   >
                     {done && <Check size={13} className="text-zinc-950" strokeWidth={3} />}
                   </span>
-                  <span
-                    className={cn(
-                      "flex-1 text-sm",
-                      done ? "text-zinc-500 line-through" : "text-zinc-100",
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={cn(
+                        "block text-sm",
+                        done ? "text-zinc-500 line-through" : "text-zinc-100",
+                      )}
+                    >
+                      {habit.name}
+                    </span>
+                    {habit.identityStatement && (
+                      <span className="mt-0.5 block text-xs italic text-zinc-500">
+                        {habit.identityStatement}
+                      </span>
                     )}
-                  >
-                    {habit.name}
+                    {linkedGoal && (
+                      <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-indigo-300/80">
+                        <Target size={10} /> {linkedGoal.title || "Untitled goal"}
+                      </span>
+                    )}
+                    {habit.minimumViable && (
+                      <span className="mt-0.5 hidden text-xs text-zinc-500 group-hover:block">
+                        Hard day floor: {habit.minimumViable}
+                      </span>
+                    )}
                   </span>
-                  {streak > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-medium text-amber-400">
-                      <Flame size={11} /> {streak}
+                  {streak >= 2 && (
+                    <span
+                      title={`${streak}-day streak`}
+                      className={cn(
+                        "inline-flex shrink-0 items-center gap-1 self-start rounded-full px-2 py-0.5 text-xs font-medium",
+                        streak >= 3
+                          ? "bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/30"
+                          : "bg-zinc-800 text-amber-400",
+                      )}
+                    >
+                      <Flame size={11} /> {streak} day streak
                     </span>
                   )}
                 </button>
+                {showRecovery && (
+                  <StreakRecoveryBanner
+                    habitId={habit.id}
+                    dateKeyStr={logKeyDate}
+                    lapsed={lapsed}
+                  />
+                )}
               </li>
             );
           })}
         </ul>
       )}
     </Card>
+  );
+}
+
+function StreakRecoveryBanner({
+  habitId,
+  dateKeyStr,
+  lapsed,
+}: {
+  habitId: string;
+  dateKeyStr: string;
+  lapsed: number;
+}) {
+  const [text, setText] = useState("");
+
+  function submit() {
+    setHabitNote(habitId, dateKeyStr, text);
+  }
+
+  return (
+    <div className="mt-1.5 rounded-lg border border-amber-400/30 bg-amber-400/5 p-3">
+      <p className="text-xs font-medium text-amber-100/90">
+        You had a {lapsed}-day streak. Restart?
+      </p>
+      <div className="mt-2 flex gap-2">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+          placeholder="What will you do differently this time?"
+          className="min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-amber-400/50 focus:outline-none"
+        />
+        <Button size="sm" variant="secondary" onClick={submit}>
+          Save
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -268,57 +735,6 @@ function DailyChallengeCard({
   );
 }
 
-function SpacedRepReview({ cards }: { cards: SpacedRepCard[] }) {
-  if (cards.length === 0) return null;
-  return (
-    <Card className="p-5">
-      <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-        <RotateCcw size={15} className="text-indigo-400" /> Recall review
-      </h2>
-      <p className="mb-4 text-sm text-zinc-500">
-        {cards.length} learning{cards.length > 1 ? "s" : ""} due for review.
-      </p>
-      <div className="space-y-3">
-        {cards.map((card) => (
-          <ReviewCard key={card.id} card={card} />
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-function ReviewCard({ card }: { card: SpacedRepCard }) {
-  const [shown, setShown] = useState(false);
-  return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-      <p className="text-sm text-zinc-400">
-        What did you learn on{" "}
-        <span className="font-medium text-zinc-200">
-          {humanDate(card.sourceDate)}
-        </span>
-        ? <span className="text-zinc-600">(+{card.interval}d)</span>
-      </p>
-      {shown ? (
-        <>
-          <p className="mt-2 whitespace-pre-wrap text-zinc-100">{card.learning}</p>
-          <div className="mt-3 flex gap-2">
-            <Button size="sm" variant="primary" onClick={() => markReviewed(card.id)}>
-              <Check size={14} /> Got it
-            </Button>
-            <Button size="sm" onClick={() => rescheduleCard(card.id)}>
-              <RotateCcw size={14} /> Needs work
-            </Button>
-          </div>
-        </>
-      ) : (
-        <Button size="sm" className="mt-3" onClick={() => setShown(true)}>
-          <Eye size={14} /> Show me
-        </Button>
-      )}
-    </div>
-  );
-}
-
 function VitalsPanel({
   log,
   yLog,
@@ -382,17 +798,35 @@ function WinPanel({
   }, [win, dateKeyStr]);
 
   const past = recentWins(logs, 8).filter((w) => w.date !== dateKeyStr);
+  const logged = Boolean(win.trim());
 
   return (
-    <Card className="p-5">
+    <Card
+      className={cn(
+        "p-5 transition-all",
+        logged
+          ? "border-zinc-800"
+          : "border-amber-400/40 shadow-[0_0_0_1px_rgba(251,191,36,0.25)] animate-pulse-border",
+      )}
+    >
       <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
         <Trophy size={15} className="text-indigo-400" /> Win of the day
+        {logged && (
+          <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] font-medium normal-case tracking-normal text-emerald-300">
+            <Check size={11} /> Logged
+          </span>
+        )}
       </h2>
       <input
         value={win}
         onChange={(e) => setWin(e.target.value)}
         placeholder="What's your biggest win today?"
-        className="w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-400/50 focus:outline-none"
+        className={cn(
+          "w-full rounded-lg border bg-zinc-950 px-3.5 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none",
+          logged
+            ? "border-zinc-800 focus:border-indigo-400/50"
+            : "border-amber-400/40 focus:border-amber-400/60",
+        )}
       />
       {past.length > 0 && (
         <div className="mt-4">
@@ -410,53 +844,6 @@ function WinPanel({
             ))}
           </ul>
         </div>
-      )}
-    </Card>
-  );
-}
-
-function LearningPanel({
-  dateKeyStr,
-  initialLearning,
-}: {
-  dateKeyStr: string;
-  initialLearning: string;
-}) {
-  const [text, setText] = useState(initialLearning);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (text !== (getDailyLog(dateKeyStr).learning ?? "")) {
-        saveLearning(dateKeyStr, text);
-        setSaved(true);
-      }
-    }, 600);
-    return () => clearTimeout(t);
-  }, [text, dateKeyStr]);
-
-  return (
-    <Card className="p-5">
-      <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-        <Lightbulb size={15} className="text-indigo-400" /> Today I learned
-      </h2>
-      <p className="mb-3 text-xs text-zinc-600">
-        Saved learnings resurface for review in 7, 14, and 30 days.
-      </p>
-      <textarea
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          setSaved(false);
-        }}
-        rows={4}
-        placeholder="One thing you learned or figured out today…"
-        className="min-h-24 w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3.5 py-2.5 text-sm leading-relaxed text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-400/50 focus:outline-none"
-      />
-      {saved && text.trim() && (
-        <p className="mt-2 flex items-center gap-1 text-xs text-emerald-400">
-          <Check size={12} /> Saved & scheduled for review
-        </p>
       )}
     </Card>
   );

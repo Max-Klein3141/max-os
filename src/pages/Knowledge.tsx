@@ -1,6 +1,6 @@
 import { format, parseISO } from "date-fns";
 import { Brain, Plus, Search, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { AutoTextarea } from "../components/ui/AutoTextarea";
@@ -10,6 +10,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { Modal } from "../components/ui/Modal";
 import { Tag } from "../components/ui/Tag";
 import { cn } from "../lib/cn";
+import { clearKnowledgeDraft, peekKnowledgeDraft } from "../lib/knowledgeDraft";
 import { uid, updateSlice, useSlice } from "../lib/store";
 import type { KnowledgeEntry, KnowledgeSourceType } from "../types";
 
@@ -54,8 +55,18 @@ export default function Knowledge() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<KnowledgeSourceType | "all">("all");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [editing, setEditing] = useState<KnowledgeEntry | null>(null);
+  // If we arrived here via "Promote to Knowledge Base", open the New entry form
+  // pre-filled with the promoted learning's content. Peek during init (pure,
+  // StrictMode-safe) and clear the one-shot draft in an effect.
+  const [editing, setEditing] = useState<KnowledgeEntry | null>(() => {
+    const draft = peekKnowledgeDraft();
+    return draft ? { ...blankEntry(), ...draft } : null;
+  });
   const [viewing, setViewing] = useState<KnowledgeEntry | null>(null);
+
+  useEffect(() => {
+    clearKnowledgeDraft();
+  }, []);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -83,7 +94,7 @@ export default function Knowledge() {
     <div>
       <PageHeader
         title="Knowledge Base"
-        subtitle="A second brain for your best thinking — built to compound."
+        subtitle="Refined principles — your best permanent thinking."
         actions={
           <Button variant="primary" onClick={() => setEditing(blankEntry())}>
             <Plus size={15} /> New entry

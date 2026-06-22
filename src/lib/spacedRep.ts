@@ -1,49 +1,58 @@
 import { addDays } from "date-fns";
-import type { SpacedRepCard } from "../types";
+import type { LearningItem, SpacedRepCard, SpacedRepStatus } from "../types";
 import { dateKey, parseKey, todayKey } from "./dates";
-import { getDatabase, setSlice, uid, updateSlice } from "./store";
+import { getDatabase, uid, updateSlice } from "./store";
 
-/** Review the original learning 7, 14, and 30 days later. */
-export const SPACED_INTERVALS = [7, 14, 30];
+/** Active-recall reviews at 1, 2, 7, 14, and 28 days after learning. */
+export const SPACED_INTERVALS = [1, 2, 7, 14, 28];
 
 /** Days to push a card forward when the user marks "Needs work". */
 export const RESCHEDULE_DAYS = 3;
 
-/**
- * (Re)schedule spaced-repetition cards for a day's learning summary. Called
- * whenever a learning summary is saved. If the text is blank, any existing
- * cards for that source date are removed.
- */
-export function scheduleForLearning(sourceDate: string, learning: string): void {
-  const existing = getDatabase().spacedRep;
-  const trimmed = learning.trim();
-  const forDate = existing.filter((c) => c.sourceDate === sourceDate);
-
-  if (!trimmed) {
-    if (forDate.length) {
-      setSlice(
-        "spacedRep",
-        existing.filter((c) => c.sourceDate !== sourceDate),
-      );
-    }
-    return;
-  }
-
-  // Unchanged text → keep existing cards (and their review progress).
-  if (forDate.length && forDate.every((c) => c.learning === trimmed)) return;
-
-  const others = existing.filter((c) => c.sourceDate !== sourceDate);
+/** Build the spaced-repetition cards for one learning item. */
+function cardsForItem(item: LearningItem): SpacedRepCard[] {
   const createdAt = new Date().toISOString();
-  const cards: SpacedRepCard[] = SPACED_INTERVALS.map((interval) => ({
+  return SPACED_INTERVALS.map((interval) => ({
     id: uid(),
-    sourceDate,
-    learning: trimmed,
-    dueDate: dateKey(addDays(parseKey(sourceDate), interval)),
+    itemId: item.id,
+    sourceDate: item.sourceDate,
+    question: item.question,
+    learning: item.answer,
+    dueDate: dateKey(addDays(parseKey(item.sourceDate), interval)),
     interval,
-    status: "pending",
+    status: "pending" as SpacedRepStatus,
     createdAt,
   }));
-  setSlice("spacedRep", [...others, ...cards]);
+}
+
+/**
+ * Save a question/answer the user learned and schedule its review cards.
+ * Returns the new item, or null if either field is blank.
+ */
+export function addLearningItem(
+  question: string,
+  answer: string,
+  sourceDate: string = todayKey(),
+): LearningItem | null {
+  const q = question.trim();
+  const a = answer.trim();
+  if (!q || !a) return null;
+  const item: LearningItem = {
+    id: uid(),
+    question: q,
+    answer: a,
+    sourceDate,
+    createdAt: new Date().toISOString(),
+  };
+  updateSlice("learningItems", (items) => [...items, item]);
+  updateSlice("spacedRep", (cards) => [...cards, ...cardsForItem(item)]);
+  return item;
+}
+
+/** Remove a learning item along with any of its outstanding review cards. */
+export function removeLearningItem(id: string): void {
+  updateSlice("learningItems", (items) => items.filter((i) => i.id !== id));
+  updateSlice("spacedRep", (cards) => cards.filter((c) => c.itemId !== id));
 }
 
 /** Pending cards that are due on or before `asOf` (default: today). */

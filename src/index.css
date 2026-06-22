@@ -58,6 +58,21 @@ body {
   animation: scaleIn 0.15s ease-out both;
 }
 
+/* Gentle glowing border to draw attention to an unfinished input */
+@keyframes pulseBorder {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.45);
+  }
+}
+
+.animate-pulse-border {
+  animation: pulseBorder 2s ease-in-out infinite;
+}
+
 /* Custom scrollbars — thin, muted */
 ::-webkit-scrollbar {
   width: 8px;

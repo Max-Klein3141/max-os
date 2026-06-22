@@ -1,11 +1,20 @@
 import { format, parseISO } from "date-fns";
-import { Activity, ChevronLeft, ChevronRight, Flame, Moon, Zap } from "lucide-react";
+import {
+  Activity,
+  CalendarCheck,
+  ChevronLeft,
+  ChevronRight,
+  Flame,
+  Moon,
+  Zap,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card } from "../components/ui/Card";
 import { cn } from "../lib/cn";
 import { addDays, dateKey, isoWeekDays, isoWeekKey, subDays } from "../lib/dates";
 import { isCompleted, isDue } from "../lib/habits";
 import { updateSlice, useSlice } from "../lib/store";
+import { weeklyReviewStatus } from "../lib/weekly";
 import type { DailyLog, Habit, HabitLogs, WeeklyReview } from "../types";
 
 const TEXT_FIELDS: { key: TextKey; label: string; placeholder: string }[] = [
@@ -88,8 +97,11 @@ function weekStats(
   let done = 0;
   let due = 0;
   for (const habit of habits) {
+    const createdKey = habit.createdAt.slice(0, 10);
     for (const day of days) {
       if (day > today) continue;
+      // Don't count days before the habit existed as missed.
+      if (dateKey(day) < createdKey) continue;
       if (isDue(habit, day)) {
         due++;
         if (isCompleted(logs, habit.id, dateKey(day))) done++;
@@ -126,6 +138,7 @@ export default function WeeklyReviewPage() {
   const days = isoWeekDays(refDate);
   const active = habits.filter((h) => !h.archived);
   const stats = weekStats(active, logs, dailyLogs, days);
+  const status = weeklyReviewStatus(reviews);
 
   const pastWeeks = Object.values(reviews)
     .sort((a, b) => b.week.localeCompare(a.week))
@@ -162,6 +175,26 @@ export default function WeeklyReviewPage() {
           </button>
         </div>
       </div>
+
+      {status.state !== "ok" && (
+        <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-400/30 bg-amber-400/5 px-4 py-3">
+          <CalendarCheck size={16} className="shrink-0 text-amber-400" />
+          <p className="flex-1 text-sm text-amber-100/90">
+            {status.state === "dueToday"
+              ? `It's Sunday — this week (${status.week}) isn't done yet. Take a few minutes below.`
+              : `Your weekly review for ${status.week} was never completed.`}
+          </p>
+          {status.week !== weekKey && (
+            <button
+              type="button"
+              onClick={() => setRefDate(parseISO(status.week))}
+              className="shrink-0 rounded-lg border border-amber-400/40 px-3 py-1 text-xs font-medium text-amber-200 transition-colors hover:bg-amber-400/10"
+            >
+              Open {status.week}
+            </button>
+          )}
+        </div>
+      )}
 
       {pastWeeks.length > 0 && (
         <div className="mb-6 flex flex-wrap gap-2">

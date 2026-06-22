@@ -4,6 +4,7 @@ import type { Database } from "../types";
 export const STORAGE_KEYS: Record<keyof Database, string> = {
   habits: "maxos_habits",
   habitLogs: "maxos_habit_logs",
+  habitNotes: "maxos_habit_notes",
   journal: "maxos_journal",
   goals: "maxos_goals",
   todos: "maxos_todos",
@@ -12,7 +13,17 @@ export const STORAGE_KEYS: Record<keyof Database, string> = {
   weeklyReviews: "maxos_weekly_reviews",
   quotes: "maxos_challenges",
   spacedRep: "maxos_spaced_rep",
+  learningItems: "maxos_learning_items",
 };
+
+/**
+ * Standalone localStorage keys that live outside the database slices but should
+ * still travel with a backup. Stored/restored as their raw string values.
+ */
+export const EXTRA_BACKUP_KEYS = [
+  "maxos_identity",
+  "maxos_banner_dismissals",
+] as const;
 
 /** Read and parse a value from localStorage, falling back if absent/corrupt. */
 export function load<T>(key: string, fallback: T): T {

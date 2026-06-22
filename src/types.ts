@@ -24,9 +24,21 @@ export interface Habit {
   /** Accent color for the habit (hex). */
   color: string;
   description?: string;
+  /** Optional identity anchor, e.g. "I am someone who trains every day". */
+  identityStatement?: string;
+  /** Optional id of a Goal this habit serves. */
+  goalId?: string;
+  /** The minimum version of this habit to do on a hard day (keeps the chain). */
+  minimumViable?: string;
   createdAt: string; // ISO timestamp
   archived?: boolean;
 }
+
+/**
+ * Per-habit, per-day free-text notes, keyed `${habitId}::${dateKey}`. Currently
+ * holds streak-recovery commitments ("what will you do differently?").
+ */
+export type HabitNotes = Record<string, string>;
 
 /**
  * Habit completion records. Keyed by `${habitId}::${dateKey}`; presence with a
@@ -37,7 +49,12 @@ export type HabitLogs = Record<string, boolean>;
 export interface JournalEntry {
   /** yyyy-MM-dd — also the storage key for the entry. */
   date: string;
-  content: string;
+  /** Structured prompt responses, keyed by prompt id (see JOURNAL_PROMPTS). */
+  sections: Record<string, string>;
+  /** Legacy freeform body from older entries; migrated into `sections` on edit. */
+  content?: string;
+  /** Free-text weekly progress notes per goal, keyed by goal id. */
+  goalProgress?: Record<string, string>;
   tags: string[];
   updatedAt: string; // ISO timestamp
 }
@@ -72,8 +89,18 @@ export interface Todo {
   priority: boolean;
   /** yyyy-MM-dd the task currently belongs to. Uncompleted tasks roll forward. */
   date: string;
-  /** Sort order within the day. */
+  /** Sort order within the day (among unscheduled tasks). */
   order: number;
+  /**
+   * Time-box start, in minutes from local midnight (e.g. 540 = 09:00). When set
+   * (together with `durationMin`), the task is scheduled into the day timeline
+   * rather than the loose to-do list.
+   */
+  startMin?: number;
+  /** Time-box length in minutes. Only meaningful when `startMin` is set. */
+  durationMin?: number;
+  /** Optional id of a Goal this task moves toward. */
+  goalId?: string;
   createdAt: string;
 }
 
@@ -104,6 +131,8 @@ export interface DailyLog {
   stress?: number; // 1–5
   win?: string;
   learning?: string;
+  /** The one thing that would make today a win, set in the morning. */
+  morningIntention?: string;
 }
 
 export interface WeeklyReview {
@@ -128,11 +157,30 @@ export interface Quote {
 
 export type SpacedRepStatus = "pending" | "done";
 
+/**
+ * A single thing learned, framed as a question + answer so it can be actively
+ * recalled. Each item seeds a series of spaced-repetition cards.
+ */
+export interface LearningItem {
+  id: string;
+  /** The recall prompt the user writes, e.g. "Why does X cause Y?". */
+  question: string;
+  /** The answer to reveal and check against. */
+  answer: string;
+  /** yyyy-MM-dd it was learned. */
+  sourceDate: string;
+  createdAt: string;
+}
+
 export interface SpacedRepCard {
   id: string;
+  /** The LearningItem this card reviews. Absent on legacy day-based cards. */
+  itemId?: string;
   /** Date of the original learning entry (yyyy-MM-dd). */
   sourceDate: string;
-  /** The learning text to recall. */
+  /** Recall prompt for Q&A cards. Legacy freeform cards have none. */
+  question?: string;
+  /** The answer / learning text to recall. */
   learning: string;
   /** yyyy-MM-dd the card becomes due. */
   dueDate: string;
@@ -146,6 +194,7 @@ export interface SpacedRepCard {
 export interface Database {
   habits: Habit[];
   habitLogs: HabitLogs;
+  habitNotes: HabitNotes;
   journal: Record<string, JournalEntry>;
   goals: Goal[];
   todos: Todo[];
@@ -154,4 +203,5 @@ export interface Database {
   weeklyReviews: Record<string, WeeklyReview>;
   quotes: Quote[];
   spacedRep: SpacedRepCard[];
+  learningItems: LearningItem[];
 }
