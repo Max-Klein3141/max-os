@@ -208,14 +208,11 @@ function saveGoal(goal: Goal) {
     return exists ? goals.map((g) => (g.id === goal.id ? goal : g)) : [...goals, goal];
   });
   
-  // Sync to Supabase in the background
-  if (goal.id.startsWith('local-')) {
-    // New goal
-    db.createGoal(goal).catch(err => console.error("Failed to create goal in Supabase:", err));
-  } else {
-    // Existing goal
-    db.updateGoal(goal.id, goal).catch(err => console.error("Failed to update goal in Supabase:", err));
-  }
+  // Sync to Supabase in the background. Upsert handles both new and existing
+  // goals, so it doesn't matter whether the row already exists in Supabase.
+  db.saveGoal(goal).catch((err) =>
+    console.error("Failed to sync goal to Supabase:", err),
+  );
 }
 
 function deleteGoal(id: string) {

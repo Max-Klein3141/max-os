@@ -163,5 +163,9 @@ begin
       'create policy %I on public.%I for all using (auth.uid() = user_id) with check (auth.uid() = user_id);',
       t || '_owner', t
     );
+    -- RLS decides which rows; this GRANT lets the logged-in role touch the table.
+    execute format(
+      'grant select, insert, update, delete on public.%I to authenticated;', t
+    );
   end loop;
 end $$;

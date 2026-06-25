@@ -1,7 +1,7 @@
 import { format, parseISO } from "date-fns";
 import { Flame, Trophy } from "lucide-react";
-import { useMemo } from "react";
-import type { ReactNode } from "react";
+import { cloneElement, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactElement, ReactNode } from "react";
 import {
   Bar,
   BarChart,
@@ -9,7 +9,6 @@ import {
   Cell,
   Line,
   LineChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -122,65 +121,61 @@ export default function Analytics() {
           subtitle="Last 90 days"
           className="lg:col-span-2"
         >
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={momentumData} margin={{ left: -20, right: 8, top: 5 }}>
-                <CartesianGrid stroke="#27272a" vertical={false} />
-                <XAxis
-                  dataKey="label"
-                  tick={AXIS}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={14}
-                />
-                <YAxis domain={[0, 100]} tick={AXIS} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ stroke: "#3f3f46" }} />
-                <Line
-                  type="monotone"
-                  dataKey="score"
-                  stroke="#818cf8"
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <Chart height={224}>
+            <LineChart data={momentumData} margin={{ left: -20, right: 8, top: 5 }}>
+              <CartesianGrid stroke="#27272a" vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={AXIS}
+                tickLine={false}
+                axisLine={false}
+                interval={14}
+              />
+              <YAxis domain={[0, 100]} tick={AXIS} tickLine={false} axisLine={false} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ stroke: "#3f3f46" }} />
+              <Line
+                type="monotone"
+                dataKey="score"
+                stroke="#818cf8"
+                strokeWidth={2}
+                dot={false}
+              />
+            </LineChart>
+          </Chart>
         </ChartCard>
 
         <ChartCard title="Habit completion" subtitle="Last 30 days">
           {habitRates.length === 0 ? (
             <Empty>No habits to chart yet.</Empty>
           ) : (
-            <div style={{ height: Math.max(140, habitRates.length * 38) }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={habitRates}
-                  layout="vertical"
-                  margin={{ left: 8, right: 16 }}
-                >
-                  <CartesianGrid stroke="#27272a" horizontal={false} />
-                  <XAxis type="number" domain={[0, 100]} tick={AXIS} axisLine={false} tickLine={false} />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    tick={AXIS}
-                    width={100}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={TOOLTIP_STYLE}
-                    cursor={{ fill: "#27272a55" }}
-                    formatter={(v) => [`${v}%`, "Completion"]}
-                  />
-                  <Bar dataKey="rate" radius={[0, 4, 4, 0]} barSize={16}>
-                    {habitRates.map((h) => (
-                      <Cell key={h.name} fill={h.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <Chart height={Math.max(140, habitRates.length * 38)}>
+              <BarChart
+                data={habitRates}
+                layout="vertical"
+                margin={{ left: 8, right: 16 }}
+              >
+                <CartesianGrid stroke="#27272a" horizontal={false} />
+                <XAxis type="number" domain={[0, 100]} tick={AXIS} axisLine={false} tickLine={false} />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  tick={AXIS}
+                  width={100}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE}
+                  cursor={{ fill: "#27272a55" }}
+                  formatter={(v) => [`${v}%`, "Completion"]}
+                />
+                <Bar dataKey="rate" radius={[0, 4, 4, 0]} barSize={16}>
+                  {habitRates.map((h) => (
+                    <Cell key={h.name} fill={h.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </Chart>
           )}
         </ChartCard>
 
@@ -216,19 +211,17 @@ export default function Analytics() {
         </ChartCard>
 
         <ChartCard title="Energy · Sleep · Stress" subtitle="Last 30 days">
-          <div className="h-52">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={vitals} margin={{ left: -24, right: 8, top: 5 }}>
-                <CartesianGrid stroke="#27272a" vertical={false} />
-                <XAxis dataKey="label" tick={AXIS} interval={5} axisLine={false} tickLine={false} />
-                <YAxis domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} tick={AXIS} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ stroke: "#3f3f46" }} />
-                <Line type="monotone" dataKey="energy" stroke="#34d399" strokeWidth={2} dot={false} connectNulls />
-                <Line type="monotone" dataKey="sleep" stroke="#818cf8" strokeWidth={2} dot={false} connectNulls />
-                <Line type="monotone" dataKey="stress" stroke="#fb923c" strokeWidth={2} dot={false} connectNulls />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <Chart height={208}>
+            <LineChart data={vitals} margin={{ left: -24, right: 8, top: 5 }}>
+              <CartesianGrid stroke="#27272a" vertical={false} />
+              <XAxis dataKey="label" tick={AXIS} interval={5} axisLine={false} tickLine={false} />
+              <YAxis domain={[1, 5]} ticks={[1, 2, 3, 4, 5]} tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ stroke: "#3f3f46" }} />
+              <Line type="monotone" dataKey="energy" stroke="#34d399" strokeWidth={2} dot={false} connectNulls />
+              <Line type="monotone" dataKey="sleep" stroke="#818cf8" strokeWidth={2} dot={false} connectNulls />
+              <Line type="monotone" dataKey="stress" stroke="#fb923c" strokeWidth={2} dot={false} connectNulls />
+            </LineChart>
+          </Chart>
           <Legend
             items={[
               { label: "Energy", color: "#34d399" },
@@ -239,31 +232,27 @@ export default function Analytics() {
         </ChartCard>
 
         <ChartCard title="Journal entries" subtitle="Per week, last 12 weeks">
-          <div className="h-52">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={journalPerWeek} margin={{ left: -24, right: 8, top: 5 }}>
-                <CartesianGrid stroke="#27272a" vertical={false} />
-                <XAxis dataKey="label" tick={AXIS} interval={1} axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={AXIS} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "#27272a55" }} />
-                <Bar dataKey="count" fill="#a78bfa" radius={[4, 4, 0, 0]} barSize={18} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          <Chart height={208}>
+            <BarChart data={journalPerWeek} margin={{ left: -24, right: 8, top: 5 }}>
+              <CartesianGrid stroke="#27272a" vertical={false} />
+              <XAxis dataKey="label" tick={AXIS} interval={1} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "#27272a55" }} />
+              <Bar dataKey="count" fill="#a78bfa" radius={[4, 4, 0, 0]} barSize={18} />
+            </BarChart>
+          </Chart>
         </ChartCard>
 
         <ChartCard title="Knowledge base" subtitle="Total entries over time">
-          <div className="h-52">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={kbGrowth} margin={{ left: -24, right: 8, top: 5 }}>
-                <CartesianGrid stroke="#27272a" vertical={false} />
-                <XAxis dataKey="label" tick={AXIS} interval={1} axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={AXIS} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ stroke: "#3f3f46" }} />
-                <Line type="monotone" dataKey="total" stroke="#22d3ee" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <Chart height={208}>
+            <LineChart data={kbGrowth} margin={{ left: -24, right: 8, top: 5 }}>
+              <CartesianGrid stroke="#27272a" vertical={false} />
+              <XAxis dataKey="label" tick={AXIS} interval={1} axisLine={false} tickLine={false} />
+              <YAxis allowDecimals={false} tick={AXIS} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ stroke: "#3f3f46" }} />
+              <Line type="monotone" dataKey="total" stroke="#22d3ee" strokeWidth={2} dot={false} />
+            </LineChart>
+          </Chart>
         </ChartCard>
 
         <ChartCard title="Win log" subtitle="Last 30 wins" className="lg:col-span-2">
@@ -289,6 +278,38 @@ export default function Analytics() {
           )}
         </ChartCard>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Sizes a Recharts chart without ResponsiveContainer. We measure the box's
+ * width with a ResizeObserver and pass concrete pixel width/height straight to
+ * the chart, rendering it only once we have a real width. This avoids the
+ * "width(-1)/height(-1) should be greater than 0" warning ResponsiveContainer
+ * logs on its initial (pre-layout) measurement.
+ */
+function Chart({
+  height,
+  children,
+}: {
+  height: number;
+  children: ReactElement<{ width?: number; height?: number }>;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      setWidth(entries[0]?.contentRect.width ?? 0);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <div ref={ref} style={{ width: "100%", height }}>
+      {width > 0 && cloneElement(children, { width, height })}
     </div>
   );
 }

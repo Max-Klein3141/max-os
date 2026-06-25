@@ -102,12 +102,12 @@ export async function updateHabit(id: string, updates: Partial<Habit>): Promise<
         identity_statement: updates.identityStatement,
         minimum_viable: updates.minimumViable,
         goal_id: updates.goalId,
-        archived: updates.archived,
+        archived: updates.archived ?? false,
       })
       .eq("id", id)
       .eq("user_id", user.id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data ? dbHabitToHabit(data) : null;
@@ -590,7 +590,7 @@ export async function updateGoal(id: string, updates: Partial<Goal>): Promise<Go
       .eq("id", id)
       .eq("user_id", user.id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
     return data
@@ -609,6 +609,35 @@ export async function updateGoal(id: string, updates: Partial<Goal>): Promise<Go
   } catch (err) {
     console.error("Failed to update goal:", err);
     return null;
+  }
+}
+
+/** Insert-or-update a goal by id (robust to whether it already exists). */
+export async function saveGoal(goal: Goal): Promise<boolean> {
+  try {
+    const user = await getCurrentUser();
+    const { error } = await supabase.from("goals").upsert(
+      [
+        {
+          id: goal.id,
+          user_id: user.id,
+          title: goal.title,
+          description: goal.description,
+          horizon: goal.horizon,
+          progress: goal.progress,
+          image: goal.image,
+          milestones: goal.milestones,
+          target_date: goal.targetDate,
+          created_at: goal.createdAt,
+        },
+      ],
+      { onConflict: "id" }
+    );
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error("Failed to save goal:", err);
+    return false;
   }
 }
 
@@ -891,7 +920,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
             identity_statement: habit.identityStatement,
             minimum_viable: habit.minimumViable,
             goal_id: habit.goalId,
-            archived: habit.archived,
+            archived: habit.archived ?? false,
             created_at: habit.createdAt,
           },
         ],
