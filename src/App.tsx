@@ -1,7 +1,12 @@
 import { Menu } from "lucide-react";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { Sidebar } from "./components/Sidebar";
 import type { ViewKey } from "./views";
+import { supabase } from './lib/supabase';
+import { Auth } from './lib/Auth';
+import { migrateFromLocalStorage, fetchHabits, fetchHabitLogs, fetchDailyLogs, fetchJournalEntries, fetchWeeklyReviews, fetchGoals } from './lib/db';
+import { replaceDatabase } from './lib/store';
 
 const Today = lazy(() => import("./pages/Today"));
 const Habits = lazy(() => import("./pages/Habits"));
@@ -51,11 +56,81 @@ function renderView(view: ViewKey, navigate: (key: ViewKey) => void) {
 }
 
 export default function App() {
+  const [session, setSession] = useState<Session | null>(null)
+  const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ViewKey>(() => {
     const saved = localStorage.getItem(LAST_VIEW_KEY) as ViewKey | null;
     return saved && VALID_VIEWS.includes(saved) ? saved : "today";
   });
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => {
+    async function initializeApp() {
+      try {
+        setLoading(true);
+        
+        // Get current session
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          // Run migration first
+          await migrateFromLocalStorage();
+          
+          // Load all data from Supabase
+          const [habits, habitLogs, dailyLogs, journalEntries, weeklyReviews, goals] = await Promise.all([
+            fetchHabits(),
+            fetchHabitLogs(),
+            fetchDailyLogs(),
+            fetchJournalEntries(),
+            fetchWeeklyReviews(),
+            fetchGoals(),
+          ]);
+          
+          // Populate the store with fetched data
+          replaceDatabase({
+            habits,
+            habitLogs,
+            dailyLogs,
+            journal: journalEntries,
+            weeklyReviews,
+            goals,
+          });
+          
+          setSession(session);
+        }
+      } catch (error) {
+        console.error("Error initializing app:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    initializeApp();
+    
+    // Subscribe to auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    
+    return () => {
+      subscription?.unsubscribe();
+    };
+  }, [])
+
+  if (loading || !session) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-zinc-950">
+        {loading ? (
+          <div className="text-center">
+            <div className="mb-4 text-zinc-400">Loading your Max OS...</div>
+            <div className="animate-spin w-8 h-8 border-2 border-zinc-700 border-t-zinc-100 rounded-full mx-auto"></div>
+          </div>
+        ) : (
+          <Auth />
+        )}
+      </div>
+    );
+  }
 
   function navigate(key: ViewKey) {
     setView(key);
@@ -65,6 +140,8 @@ export default function App() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950 text-zinc-100">
+
+  
       <Sidebar
         active={view}
         onNavigate={navigate}

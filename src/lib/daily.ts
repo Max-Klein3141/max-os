@@ -1,5 +1,6 @@
 import type { DailyLog } from "../types";
 import { getDatabase, setSlice } from "./store";
+import * as db from "./db";
 
 /** Read a daily log, or an empty one for that date. */
 export function getDailyLog(key: string): DailyLog {
@@ -15,6 +16,9 @@ export function updateDailyLog(key: string, patch: Partial<DailyLog>): void {
     date: key,
   };
   setSlice("dailyLogs", { ...logs, [key]: next });
+  
+  // Sync to Supabase in the background
+  db.saveDailyLog(key, next).catch(err => console.error("Failed to sync daily log to Supabase:", err));
 }
 
 /** Most recent non-empty wins, newest first. */

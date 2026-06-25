@@ -14,6 +14,7 @@ import { cn } from "../lib/cn";
 import { addDays, dateKey, isoWeekDays, isoWeekKey, subDays } from "../lib/dates";
 import { isCompleted, isDue } from "../lib/habits";
 import { updateSlice, useSlice } from "../lib/store";
+import * as db from "../lib/db";
 import { weeklyReviewStatus } from "../lib/weekly";
 import type { DailyLog, Habit, HabitLogs, WeeklyReview } from "../types";
 
@@ -69,6 +70,10 @@ function saveReview(week: string, patch: Partial<WeeklyReview>) {
       delete next[week];
       return next;
     }
+    
+    // Sync to Supabase in the background
+    db.saveWeeklyReview(week, merged).catch(err => console.error("Failed to sync weekly review to Supabase:", err));
+    
     return { ...reviews, [week]: merged };
   });
 }

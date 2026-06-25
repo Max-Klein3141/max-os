@@ -38,6 +38,7 @@ import { clamp, cn } from "../lib/cn";
 import { addDays, dateKey, humanDate, parseKey, subDays, todayKey } from "../lib/dates";
 import { fileToCompressedDataURL } from "../lib/image";
 import { getDatabase, setSlice, uid, updateSlice, useSlice } from "../lib/store";
+import * as db from "../lib/db";
 import type { Goal, GoalHorizon, Milestone, Todo } from "../types";
 
 const HORIZONS: { value: GoalHorizon; label: string; hint: string }[] = [
@@ -188,10 +189,22 @@ function saveGoal(goal: Goal) {
     const exists = goals.some((g) => g.id === goal.id);
     return exists ? goals.map((g) => (g.id === goal.id ? goal : g)) : [...goals, goal];
   });
+  
+  // Sync to Supabase in the background
+  if (goal.id.startsWith('local-')) {
+    // New goal
+    db.createGoal(goal).catch(err => console.error("Failed to create goal in Supabase:", err));
+  } else {
+    // Existing goal
+    db.updateGoal(goal.id, goal).catch(err => console.error("Failed to update goal in Supabase:", err));
+  }
 }
 
 function deleteGoal(id: string) {
   updateSlice("goals", (goals) => goals.filter((g) => g.id !== id));
+  
+  // Sync deletion to Supabase in the background
+  db.deleteGoal(id).catch(err => console.error("Failed to delete goal in Supabase:", err));
 }
 
 function blankGoal(horizon: GoalHorizon): Goal {

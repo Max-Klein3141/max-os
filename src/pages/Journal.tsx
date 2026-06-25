@@ -19,6 +19,7 @@ import { Tag } from "../components/ui/Tag";
 import { cn } from "../lib/cn";
 import { humanDate, longDate, parseKey, todayKey } from "../lib/dates";
 import { updateSlice, useSlice } from "../lib/store";
+import * as db from "../lib/db";
 import type { JournalEntry } from "../types";
 
 type JournalPrompt = { key: string; label: string; placeholder: string };
@@ -85,15 +86,20 @@ function saveEntry(
     }
     // Note: legacy `content` is intentionally dropped here — it was migrated
     // into `sections` when the editor opened.
+    const entry: JournalEntry = {
+      date,
+      sections: clean,
+      goalProgress: cleanGoals,
+      tags,
+      updatedAt: new Date().toISOString(),
+    };
+    
+    // Sync to Supabase in the background
+    db.saveJournalEntry(date, entry).catch(err => console.error("Failed to sync journal entry to Supabase:", err));
+    
     return {
       ...journal,
-      [date]: {
-        date,
-        sections: clean,
-        goalProgress: cleanGoals,
-        tags,
-        updatedAt: new Date().toISOString(),
-      },
+      [date]: entry,
     };
   });
 }
@@ -104,6 +110,10 @@ function deleteEntry(date: string) {
     delete next[date];
     return next;
   });
+  
+  // Sync deletion to Supabase in the background
+  db.saveJournalEntry(date, { date, sections: {}, tags: [], updatedAt: new Date().toISOString() })
+    .catch(err => console.error("Failed to sync journal deletion to Supabase:", err));
 }
 
 export default function Journal() {

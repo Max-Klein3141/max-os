@@ -8,6 +8,7 @@ import type {
 } from "../types";
 import { setSlice, uid, updateSlice, getDatabase } from "./store";
 import { dateKey } from "./dates";
+import * as db from "./db";
 
 export const HABIT_CATEGORIES: { value: HabitCategory; label: string }[] = [
   { value: "health", label: "Health" },
@@ -263,6 +264,10 @@ export function addHabit(input: HabitInput): Habit {
     ...input,
   };
   updateSlice("habits", (habits) => [...habits, habit]);
+  // Sync to Supabase in the background
+  db.createHabit({
+    ...habit,
+  }).catch(err => console.error("Failed to sync habit to Supabase:", err));
   return habit;
 }
 
@@ -270,12 +275,16 @@ export function updateHabit(habit: Habit): void {
   updateSlice("habits", (habits) =>
     habits.map((h) => (h.id === habit.id ? habit : h)),
   );
+  // Sync to Supabase in the background
+  db.updateHabit(habit.id, habit).catch(err => console.error("Failed to sync habit update to Supabase:", err));
 }
 
 export function setHabitArchived(id: string, archived: boolean): void {
   updateSlice("habits", (habits) =>
     habits.map((h) => (h.id === id ? { ...h, archived } : h)),
   );
+  // Sync to Supabase in the background
+  db.updateHabit(id, { archived } as any).catch(err => console.error("Failed to sync habit archive to Supabase:", err));
 }
 
 export function deleteHabit(id: string): void {
@@ -288,6 +297,9 @@ export function deleteHabit(id: string): void {
     if (!key.startsWith(prefix)) next[key] = logs[key];
   }
   setSlice("habitLogs", next);
+  
+  // Sync to Supabase in the background
+  db.deleteHabit(id).catch(err => console.error("Failed to sync habit deletion to Supabase:", err));
 }
 
 /** Toggle a single habit-day completion. */
@@ -299,6 +311,12 @@ export function toggleHabitLog(habitId: string, key: string): void {
     else next[k] = true;
     return next;
   });
+  
+  // Sync to Supabase in the background
+  const logs = getDatabase().habitLogs;
+  const k = logKey(habitId, key);
+  const completed = logs[k] === true;
+  db.toggleHabitLogEntry(habitId, key, completed).catch(err => console.error("Failed to sync habit log to Supabase:", err));
 }
 
 /** Read a per-habit, per-day note (e.g. a streak-recovery commitment). */
@@ -325,4 +343,7 @@ export function setHabitNote(habitId: string, key: string, text: string): void {
     ...notes,
     [logKey(habitId, key)]: text.trim(),
   }));
+  
+  // Sync to Supabase in the background
+  db.setHabitNote(habitId, key, text.trim()).catch(err => console.error("Failed to sync habit note to Supabase:", err));
 }
