@@ -19,7 +19,6 @@ import type {
   WeeklyReview,
 } from "../types";
 import { STORAGE_KEYS, EXTRA_BACKUP_KEYS, load } from "./storage";
-import type { Database } from "../types";
 
 /** Get the current authenticated user or throw. */
 async function getCurrentUser() {
@@ -53,13 +52,16 @@ export async function fetchHabits(): Promise<Habit[]> {
   }
 }
 
-export async function createHabit(habit: Omit<Habit, "id" | "createdAt">): Promise<Habit | null> {
+export async function createHabit(habit: Habit): Promise<Habit | null> {
   try {
     const user = await getCurrentUser();
     const { data, error } = await supabase
       .from("habits")
       .insert([
         {
+          // Use the locally-generated id so it matches habit_logs and the rest
+          // of the local-first store (the id column has no DB-side default).
+          id: habit.id,
           user_id: user.id,
           name: habit.name,
           description: habit.description,
@@ -71,7 +73,7 @@ export async function createHabit(habit: Omit<Habit, "id" | "createdAt">): Promi
           minimum_viable: habit.minimumViable,
           goal_id: habit.goalId,
           archived: habit.archived || false,
-          created_at: new Date().toISOString(),
+          created_at: habit.createdAt,
         },
       ])
       .select()
@@ -184,13 +186,13 @@ export async function toggleHabitLogEntry(
     const user = await getCurrentUser();
 
     // Try to update existing record
-    const { data: existing, error: fetchError } = await supabase
+    const { data: existing } = await supabase
       .from("habit_logs")
       .select("id")
       .eq("user_id", user.id)
       .eq("habit_id", habitId)
       .eq("date", date)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       // Update
@@ -230,7 +232,7 @@ export async function setHabitNote(habitId: string, date: string, note: string):
       .eq("user_id", user.id)
       .eq("habit_id", habitId)
       .eq("date", date)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       const { error } = await supabase
@@ -299,7 +301,7 @@ export async function saveDailyLog(date: string, log: Partial<DailyLog>): Promis
       .select("id")
       .eq("user_id", user.id)
       .eq("date", date)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       const { error } = await supabase
@@ -377,7 +379,7 @@ export async function saveJournalEntry(date: string, entry: JournalEntry): Promi
       .select("id")
       .eq("user_id", user.id)
       .eq("date", date)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       const { error } = await supabase
@@ -457,7 +459,7 @@ export async function saveWeeklyReview(weekKey: string, review: WeeklyReview): P
       .select("id")
       .eq("user_id", user.id)
       .eq("week_start", weekKey)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       const { error } = await supabase
@@ -528,13 +530,15 @@ export async function fetchGoals(): Promise<Goal[]> {
   }
 }
 
-export async function createGoal(goal: Omit<Goal, "id" | "createdAt">): Promise<Goal | null> {
+export async function createGoal(goal: Goal): Promise<Goal | null> {
   try {
     const user = await getCurrentUser();
     const { data, error } = await supabase
       .from("goals")
       .insert([
         {
+          // Match the locally-generated id (no DB-side default on the id column).
+          id: goal.id,
           user_id: user.id,
           title: goal.title,
           description: goal.description,
@@ -543,7 +547,7 @@ export async function createGoal(goal: Omit<Goal, "id" | "createdAt">): Promise<
           image: goal.image,
           milestones: goal.milestones,
           target_date: goal.targetDate,
-          created_at: new Date().toISOString(),
+          created_at: goal.createdAt,
         },
       ])
       .select()
@@ -626,6 +630,152 @@ export async function deleteGoal(id: string): Promise<boolean> {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// TODOS
+// ──────────────────────────────────────────────────────────────────────────
+
+export async function fetchTodos(): Promise<Todo[]> {
+  try {
+    const user = await getCurrentUser();
+    const { data, error } = await supabase
+      .from("todos")
+      .select("*")
+      .eq("user_id", user.id);
+
+    if (error) throw error;
+    return (data || []).map((t: any) => ({
+      id: t.id,
+      text: t.text,
+      done: t.done,
+      priority: t.priority,
+      date: t.date,
+      order: t.sort_order,
+      startMin: t.start_min ?? undefined,
+      durationMin: t.duration_min ?? undefined,
+      goalId: t.goal_id ?? undefined,
+      createdAt: t.created_at,
+    }));
+  } catch (err) {
+    console.error("Failed to fetch todos:", err);
+    return [];
+  }
+}
+
+export async function saveTodo(todo: Todo): Promise<boolean> {
+  try {
+    const user = await getCurrentUser();
+    const { error } = await supabase.from("todos").upsert(
+      [
+        {
+          id: todo.id,
+          user_id: user.id,
+          text: todo.text,
+          done: todo.done,
+          priority: todo.priority,
+          date: todo.date,
+          sort_order: todo.order,
+          start_min: todo.startMin,
+          duration_min: todo.durationMin,
+          goal_id: todo.goalId,
+          created_at: todo.createdAt,
+        },
+      ],
+      { onConflict: "id" }
+    );
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error("Failed to save todo:", err);
+    return false;
+  }
+}
+
+export async function deleteTodo(id: string): Promise<boolean> {
+  try {
+    const user = await getCurrentUser();
+    const { error } = await supabase
+      .from("todos")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error("Failed to delete todo:", err);
+    return false;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// KNOWLEDGE
+// ──────────────────────────────────────────────────────────────────────────
+
+export async function fetchKnowledge(): Promise<KnowledgeEntry[]> {
+  try {
+    const user = await getCurrentUser();
+    const { data, error } = await supabase
+      .from("knowledge")
+      .select("*")
+      .eq("user_id", user.id);
+
+    if (error) throw error;
+    return (data || []).map((k: any) => ({
+      id: k.id,
+      title: k.title,
+      body: k.body,
+      tags: k.tags || [],
+      source: k.source ?? undefined,
+      sourceType: k.source_type,
+      createdAt: k.created_at,
+    }));
+  } catch (err) {
+    console.error("Failed to fetch knowledge:", err);
+    return [];
+  }
+}
+
+export async function saveKnowledge(entry: KnowledgeEntry): Promise<boolean> {
+  try {
+    const user = await getCurrentUser();
+    const { error } = await supabase.from("knowledge").upsert(
+      [
+        {
+          id: entry.id,
+          user_id: user.id,
+          title: entry.title,
+          body: entry.body,
+          tags: entry.tags,
+          source: entry.source,
+          source_type: entry.sourceType,
+          created_at: entry.createdAt,
+        },
+      ],
+      { onConflict: "id" }
+    );
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error("Failed to save knowledge:", err);
+    return false;
+  }
+}
+
+export async function deleteKnowledge(id: string): Promise<boolean> {
+  try {
+    const user = await getCurrentUser();
+    const { error } = await supabase
+      .from("knowledge")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+    if (error) throw error;
+    return true;
+  } catch (err) {
+    console.error("Failed to delete knowledge:", err);
+    return false;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // SETTINGS & PREFERENCES
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -636,7 +786,7 @@ export async function fetchSettings(): Promise<{ identity: string; bannerDismiss
       .from("settings")
       .select("preferences")
       .eq("user_id", user.id)
-      .single();
+      .maybeSingle();
 
     if (error && error.code !== "PGRST116") throw error; // PGRST116 = no rows returned
     
@@ -693,6 +843,22 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
 
     console.log("Starting localStorage migration to Supabase...");
 
+    // Track whether every upload succeeds. We only delete localStorage if the
+    // whole migration succeeded, so a partial/failed run can never lose data —
+    // it simply retries on the next load.
+    let migrationOk = true;
+    const tryUpsert = async (
+      table: string,
+      rows: Record<string, unknown>[],
+      opts: { onConflict: string },
+    ) => {
+      const { error } = await supabase.from(table).upsert(rows, opts);
+      if (error) {
+        migrationOk = false;
+        console.error(`Migration: failed to upsert into "${table}":`, error.message);
+      }
+    };
+
     // Load all data from localStorage
     const habits = load<Habit[]>(STORAGE_KEYS.habits, []);
     const habitLogs = load<HabitLogs>(STORAGE_KEYS.habitLogs, {});
@@ -711,7 +877,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
 
     // Migrate habits
     for (const habit of habits) {
-      await supabase.from("habits").upsert(
+      await tryUpsert("habits",
         [
           {
             id: habit.id,
@@ -737,7 +903,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
     for (const [key, completed] of Object.entries(habitLogs)) {
       const [habitId, date] = key.split("::");
       const note = habitNotes[key] || null;
-      await supabase.from("habit_logs").upsert(
+      await tryUpsert("habit_logs",
         [
           {
             user_id: user.id,
@@ -754,7 +920,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
 
     // Migrate daily logs
     for (const [date, log] of Object.entries(dailyLogs)) {
-      await supabase.from("daily_logs").upsert(
+      await tryUpsert("daily_logs",
         [
           {
             user_id: user.id,
@@ -774,7 +940,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
 
     // Migrate journal entries
     for (const [date, entry] of Object.entries(journal)) {
-      await supabase.from("journal_entries").upsert(
+      await tryUpsert("journal_entries",
         [
           {
             user_id: user.id,
@@ -793,7 +959,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
 
     // Migrate weekly reviews
     for (const [weekKey, review] of Object.entries(weeklyReviews)) {
-      await supabase.from("weekly_reviews").upsert(
+      await tryUpsert("weekly_reviews",
         [
           {
             user_id: user.id,
@@ -814,7 +980,7 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
 
     // Migrate goals
     for (const goal of goals) {
-      await supabase.from("goals").upsert(
+      await tryUpsert("goals",
         [
           {
             id: goal.id,
@@ -833,12 +999,53 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
       );
     }
 
+    // Migrate todos
+    for (const todo of todos) {
+      await tryUpsert("todos",
+        [
+          {
+            id: todo.id,
+            user_id: user.id,
+            text: todo.text,
+            done: todo.done,
+            priority: todo.priority,
+            date: todo.date,
+            sort_order: todo.order,
+            start_min: todo.startMin,
+            duration_min: todo.durationMin,
+            goal_id: todo.goalId,
+            created_at: todo.createdAt,
+          },
+        ],
+        { onConflict: "id" }
+      );
+    }
+
+    // Migrate knowledge entries
+    for (const entry of knowledge) {
+      await tryUpsert("knowledge",
+        [
+          {
+            id: entry.id,
+            user_id: user.id,
+            title: entry.title,
+            body: entry.body,
+            tags: entry.tags,
+            source: entry.source,
+            source_type: entry.sourceType,
+            created_at: entry.createdAt,
+          },
+        ],
+        { onConflict: "id" }
+      );
+    }
+
     // Store identity and banner dismissals in settings (or as user metadata)
     const preferences = {
       identity,
       bannerDismissals: JSON.parse(bannerDismissals),
     };
-    await supabase.from("settings").upsert(
+    await tryUpsert("settings",
       [
         {
           user_id: user.id,
@@ -849,16 +1056,23 @@ export async function migrateFromLocalStorage(): Promise<boolean> {
       { onConflict: "user_id" }
     );
 
-    // Clear localStorage except maxos_view
-    for (const key of Object.values(STORAGE_KEYS)) {
-      localStorage.removeItem(key);
+    // Only delete localStorage if EVERY upload succeeded. Otherwise keep it as
+    // the source of truth (nothing is lost) and let the migration retry next load.
+    if (migrationOk) {
+      for (const key of Object.values(STORAGE_KEYS)) {
+        localStorage.removeItem(key);
+      }
+      for (const key of EXTRA_BACKUP_KEYS) {
+        localStorage.removeItem(key);
+      }
+      console.log("Migration complete!");
+    } else {
+      console.warn(
+        "Migration finished with errors — your local data was kept (nothing deleted). " +
+          "Fix the Supabase schema, then reload to retry.",
+      );
     }
-    for (const key of EXTRA_BACKUP_KEYS) {
-      localStorage.removeItem(key);
-    }
-
-    console.log("Migration complete!");
-    return true;
+    return migrationOk;
   } catch (err) {
     console.error("Failed to migrate localStorage to Supabase:", err);
     return false;

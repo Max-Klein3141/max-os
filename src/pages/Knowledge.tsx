@@ -10,6 +10,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { Modal } from "../components/ui/Modal";
 import { Tag } from "../components/ui/Tag";
 import { cn } from "../lib/cn";
+import * as db from "../lib/db";
 import { clearKnowledgeDraft, peekKnowledgeDraft } from "../lib/knowledgeDraft";
 import { uid, updateSlice, useSlice } from "../lib/store";
 import type { KnowledgeEntry, KnowledgeSourceType } from "../types";
@@ -33,10 +34,18 @@ function saveEntry(entry: KnowledgeEntry) {
       ? list.map((e) => (e.id === entry.id ? entry : e))
       : [entry, ...list],
   );
+  // Sync to Supabase in the background
+  db.saveKnowledge(entry).catch((err) =>
+    console.error("Failed to sync knowledge entry to Supabase:", err),
+  );
 }
 
 function deleteEntry(id: string) {
   updateSlice("knowledge", (list) => list.filter((e) => e.id !== id));
+  // Sync deletion to Supabase in the background
+  db.deleteKnowledge(id).catch((err) =>
+    console.error("Failed to sync knowledge deletion to Supabase:", err),
+  );
 }
 
 function blankEntry(): KnowledgeEntry {

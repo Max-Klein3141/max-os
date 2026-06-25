@@ -49,18 +49,33 @@ const HORIZONS: { value: GoalHorizon; label: string; hint: string }[] = [
 
 // ── Todo helpers ─────────────────────────────────────────────────────────────
 
+/** Push a todo's current state to Supabase in the background. */
+function syncTodo(id: string) {
+  const todo = getDatabase().todos.find((t) => t.id === id);
+  if (todo) {
+    db.saveTodo(todo).catch((err) =>
+      console.error("Failed to sync todo to Supabase:", err),
+    );
+  }
+}
+
 function rolloverTodos(): number {
   const today = todayKey();
   const todos = getDatabase().todos;
   let rolled = 0;
+  const rolledIds: string[] = [];
   const next = todos.map((t) => {
     if (!t.done && t.date < today) {
       rolled++;
+      rolledIds.push(t.id);
       return { ...t, date: today };
     }
     return t;
   });
-  if (rolled) setSlice("todos", next);
+  if (rolled) {
+    setSlice("todos", next);
+    for (const id of rolledIds) syncTodo(id);
+  }
   return rolled;
 }
 
@@ -73,18 +88,17 @@ function nextOrder(date: string): number {
 function addTodo(text: string, date: string) {
   const trimmed = text.trim();
   if (!trimmed) return;
-  updateSlice("todos", (todos) => [
-    ...todos,
-    {
-      id: uid(),
-      text: trimmed,
-      done: false,
-      priority: false,
-      date,
-      order: nextOrder(date),
-      createdAt: new Date().toISOString(),
-    },
-  ]);
+  const todo: Todo = {
+    id: uid(),
+    text: trimmed,
+    done: false,
+    priority: false,
+    date,
+    order: nextOrder(date),
+    createdAt: new Date().toISOString(),
+  };
+  updateSlice("todos", (todos) => [...todos, todo]);
+  syncTodo(todo.id);
 }
 
 /** Create a task that's scheduled into the day timeline straight away. */
@@ -97,21 +111,20 @@ function createScheduledTodo(
 ) {
   const trimmed = text.trim();
   if (!trimmed) return;
-  updateSlice("todos", (todos) => [
-    ...todos,
-    {
-      id: uid(),
-      text: trimmed,
-      done: false,
-      priority: false,
-      date,
-      order: nextOrder(date),
-      startMin: clampMinutes(startMin),
-      durationMin,
-      goalId,
-      createdAt: new Date().toISOString(),
-    },
-  ]);
+  const todo: Todo = {
+    id: uid(),
+    text: trimmed,
+    done: false,
+    priority: false,
+    date,
+    order: nextOrder(date),
+    startMin: clampMinutes(startMin),
+    durationMin,
+    goalId,
+    createdAt: new Date().toISOString(),
+  };
+  updateSlice("todos", (todos) => [...todos, todo]);
+  syncTodo(todo.id);
 }
 
 const MAX_PRIORITY = 3;
@@ -134,10 +147,14 @@ function patchTodo(id: string, patch: Partial<Todo>) {
   updateSlice("todos", (todos) =>
     todos.map((t) => (t.id === id ? { ...t, ...patch } : t)),
   );
+  syncTodo(id);
 }
 
 function removeTodo(id: string) {
   updateSlice("todos", (todos) => todos.filter((t) => t.id !== id));
+  db.deleteTodo(id).catch((err) =>
+    console.error("Failed to sync todo deletion to Supabase:", err),
+  );
 }
 
 /** Drop a task's time-box, returning it to the loose to-do list. */
@@ -164,6 +181,7 @@ function reorderTodos(sourceId: string, targetId: string, date: string) {
       orderMap.has(t.id) ? { ...t, order: orderMap.get(t.id) as number } : t,
     ),
   );
+  for (const id of orderMap.keys()) syncTodo(id);
 }
 
 const DURATION_OPTIONS = [15, 30, 45, 60, 90, 120, 180];
