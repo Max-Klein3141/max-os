@@ -4,7 +4,7 @@ import type { Session } from "@supabase/supabase-js";
 import { Sidebar } from "./components/Sidebar";
 import type { ViewKey } from "./views";
 import { supabase } from './lib/supabase';
-import { Auth } from './lib/Auth';
+import { Auth, ResetPassword } from './lib/Auth';
 import { migrateFromLocalStorage, fetchHabits, fetchHabitLogs, fetchDailyLogs, fetchJournalEntries, fetchWeeklyReviews, fetchGoals } from './lib/db';
 import { replaceDatabase } from './lib/store';
 
@@ -58,6 +58,7 @@ function renderView(view: ViewKey, navigate: (key: ViewKey) => void) {
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true);
+  const [recovery, setRecovery] = useState(false);
   const [view, setView] = useState<ViewKey>(() => {
     const saved = localStorage.getItem(LAST_VIEW_KEY) as ViewKey | null;
     return saved && VALID_VIEWS.includes(saved) ? saved : "today";
@@ -108,7 +109,9 @@ export default function App() {
     initializeApp();
     
     // Subscribe to auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Arriving via a password-reset link: show the "set new password" screen.
+      if (event === 'PASSWORD_RECOVERY') setRecovery(true);
       setSession(session);
     });
     
@@ -116,6 +119,10 @@ export default function App() {
       subscription?.unsubscribe();
     };
   }, [])
+
+  if (recovery) {
+    return <ResetPassword onDone={() => setRecovery(false)} />;
+  }
 
   if (loading || !session) {
     return (
